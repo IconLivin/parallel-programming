@@ -2,7 +2,7 @@
 #include <mpi.h>
 #include <ctime>
 
-using namespace::std;
+using namespace std;
 
 int  curr_rank_proc;
 int  num_of_procs;
@@ -17,8 +17,8 @@ double* Create_vector_and_init(int size_row, int size_column)
 
 	double* vec;
 	vec = new double[size_row * size_column];
-	srand((unsigned)time(NULL));
-	if (size_row > 10 || size_column > 10)
+	srand(time(NULL));
+	if (size_row > 4 || size_column > 4)
 	{
 		for (int i = 0; i < size_row * size_column; i++)vec[i] = (double)(rand() % 100) - 50.0 + 0.5;;
 	}
@@ -122,10 +122,11 @@ int main(int argc, char* argv[])
 
 		size_work_of_proc = size_el / num_of_procs;
 
-		MPI_Bcast(&size_el, 1, MPI_INT, 0, MPI_COMM_WORLD);
+		for (int i = 1; i < num_of_procs; i++)
+			MPI_Send(&size_el, 1, MPI_INT, i, 1, MPI_COMM_WORLD);
 		for (int i = 1; i < num_of_procs; i++)
 			MPI_Send(matrix_as_vector + size_work_of_proc * (i - 1), size_work_of_proc, MPI_DOUBLE, i, 1, MPI_COMM_WORLD);
-		
+
 
 		cout << "Process with rang " << curr_rank_proc << " start own job" << endl;
 
@@ -142,7 +143,7 @@ int main(int argc, char* argv[])
 
 		end_time_of_pp_alg = MPI_Wtime();
 
-		time_pp_work_alg = (end_time_of_pp_alg - start_time_of_pp_alg) * 1000;
+		time_pp_work_alg = end_time_of_pp_alg - start_time_of_pp_alg;
 		cout << "Sum of all elements in matrix is (Parallel version): " << sum_el_pp << endl;
 		cout << "Spent time on the implementation of this algorithm (Parallel version)" << time_pp_work_alg << " ms" << endl;
 
