@@ -1,5 +1,5 @@
 #include <iostream>
-#include <mpi.h>
+#include "mpi.h"
 #include <ctime>
 
 using namespace std;
@@ -56,7 +56,7 @@ int main(int argc, char* argv[])
 	double start_time_of_pp_alg = 0;
 
 
-	double partial_summ = 0;
+	double partial_summ = 0, temp_sum = 0;
 	int size_el = 1;
 	int size_work_of_proc = 0;
 
@@ -122,8 +122,7 @@ int main(int argc, char* argv[])
 
 		size_work_of_proc = size_el / num_of_procs;
 
-		for (int i = 1; i < num_of_procs; i++)
-			MPI_Send(&size_el, 1, MPI_INT, i, 1, MPI_COMM_WORLD);
+		MPI_Bcast(&size_el, 1, MPI_INT, 0, MPI_COMM_WORLD);
 		for (int i = 1; i < num_of_procs; i++)
 			MPI_Send(matrix_as_vector + size_work_of_proc * (i - 1), size_work_of_proc, MPI_DOUBLE, i, 1, MPI_COMM_WORLD);
 
@@ -131,15 +130,13 @@ int main(int argc, char* argv[])
 		cout << "Process with rang " << curr_rank_proc << " start own job" << endl;
 
 		for (int i = size_work_of_proc * (num_of_procs - 1); i < size_el; i++)//подсчитывает последнюю оставшуюся часть, если однопроцесорная система, считает все сама
-			partial_summ += matrix_as_vector[i];
+			temp_sum += matrix_as_vector[i];
 
-		sum_el_pp = partial_summ;
+		sum_el_pp = temp_sum;
 
-		for (int i = 1; i < num_of_procs; i++)
-		{
-			MPI_Recv(&partial_summ, 1, MPI_DOUBLE, i, 1, MPI_COMM_WORLD, &stat);
-			sum_el_pp += partial_summ;
-		}
+		MPI_Reduce(&partial_summ, &temp_sum, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+		sum_el_pp += temp_sum;
+		
 
 		end_time_of_pp_alg = MPI_Wtime();
 
@@ -163,7 +160,7 @@ int main(int argc, char* argv[])
 	{
 		double* recv_matrix_as_vector;
 
-		MPI_Recv(&size_el, 1, MPI_INT, 0, 1, MPI_COMM_WORLD, &stat);
+		MPI_Bcast(&size_el, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
 		size_work_of_proc = size_el / num_of_procs;
 		recv_matrix_as_vector = new double[size_work_of_proc];
@@ -174,10 +171,9 @@ int main(int argc, char* argv[])
 		for (int i = 0; i < size_work_of_proc; i++)
 			partial_summ += recv_matrix_as_vector[i];
 
-		MPI_Send(&partial_summ, 1, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);
+		MPI_Reduce(&partial_summ, &temp_sum, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 		delete[] recv_matrix_as_vector;
 	}
-
 	MPI_Finalize();
 
 	/* Конец MPI кода */
