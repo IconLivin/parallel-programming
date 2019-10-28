@@ -1,181 +1,273 @@
+#include <mpi.h>
 #include <iostream>
-#include "mpi.h"
-#include <ctime>
+#include <queue>
 
 using namespace std;
 
-int  curr_rank_proc;
-int  num_of_procs;
-double  time_seq_work_alg = 0;
-double  time_pp_work_alg = 0;
+#define MANAGER 0
+#define PRODUCER 2 
+#define CONSUMER 1
 
-
-double* Create_vector_and_init(int size_row, int size_column)
+struct info
 {
-	if (size_row < 1 || size_column < 1)
-		return NULL;
+	int rank;
+	int whatDoYouNeed;
+	int res;
+};
 
-	double* vec;
-	vec = new double[size_row * size_column];
-	srand(time(NULL));
-	if (size_row > 4 || size_column > 4)
-	{
-		for (int i = 0; i < size_row * size_column; i++)vec[i] = (double)(rand() % 100) - 50.0 + 0.5;;
+const int PUT_RESOURCE = 1;
+const int GET_RESOURCE = 2;
+const int EXITP = 3;
+const int EXITC = 4;
+int STOP = -1;
+
+
+
+class Consumer {
+
+private:
+	int resources_to_consume; 
+	std::queue<int> resources; 
+	info i1;
+private:
+	void RequestResource() { 
+
+		MPI_Send(&i1, 3, MPI_INT, MANAGER, 0, MPI_COMM_WORLD); 
 	}
-	else
-	{
-		for (int i = 0; i < size_row * size_column; i++)
+	void RecieveResource() { 
+		int resource;
+		MPI_Status status;
+		MPI_Recv(&resource, 1, MPI_INT, MANAGER, 3, MPI_COMM_WORLD, &status);
+		if (resource == -1)
 		{
-			cout << "Input" << i << " double element: " << endl;
-			cin >> vec[i];
+			MPI_Finalize();
+			exit(0);
+		}
+		if (resource != 0)
+		{ 
+			resources.push(resource);
+			cout << "Consumer " << i1.rank << ": i`ve got resource " << resource << endl;
+			resources_to_consume--; 
+		}
+		else {
+			cout << "Consumer " << i1.rank << ": Manager buffer is empty!" << endl;
 		}
 	}
-	return vec;
-}
 
-void Show_vec(double* vec, int size_matr_row, int size_matr_column)
-{
-	if (vec != NULL)
-		for (int i = 0; i < size_matr_row * size_matr_column; i++)
-		{
-			cout << vec[i] << " ";
-			cout << endl;
+public:
+	Consumer(int in_rank, int in_resource_num) { 
+		resources_to_consume = in_resource_num; 
+		i1.rank = in_rank; 
+		i1.whatDoYouNeed = GET_RESOURCE;
+	}
+	void Run() {
+		while (resources_to_consume) { 
+			RequestResource(); 
+			RecieveResource();
 		}
-}
-int main(int argc, char* argv[])
-{
-	int size_row = 5, size_column = 5;
-	double* matrix_as_vector = NULL;
+		i1.whatDoYouNeed = EXITC;
+		cout << "Consumer " << i1.rank << ": Finished!" << endl;
+		MPI_Send(&i1, 3, MPI_INT, MANAGER, 0, MPI_COMM_WORLD);
+	}
+};
 
-	double sum_el_seq = 0;
-	double sum_el_pp = 0;
+class Producer {
+private:
+	int resources_to_produce; 
+	std::queue<int> resources;
+	info i2;
+	MPI_Status status;
+private:
+	void SendResourceToManager() { 
+		i2.res = resources.front();
+		int otvet;
+		MPI_Send(&i2, 3, MPI_INT, MANAGER, 0, MPI_COMM_WORLD);
+		
+		MPI_Recv(&otvet, 1, MPI_INT, MANAGER, 1, MPI_COMM_WORLD, &status);
+		if (otvet == -1)
+		{
+			MPI_Finalize();
+			exit(0);
+		}
+		if (otvet == 0) 
+		{
+			cout << "Producer " << i2.rank << ": sending resource " << i2.res << " in buffer" << endl; 
+			resources.pop(); 
+		}
+		else
+		{
+			cout << "Producer " << i2.rank << ": buffer is full. Failed to put the resource " << i2.res << " in buffer" << endl;
+		}
+	}
+	void CreateResource() { 
+		int resource = resources_to_produce + (i2.rank - 1) * 5 + 1;
+		resources.push(resource);
+		resources_to_produce--; 
+	}
+public:
+	Producer(int in_rank, int num) { 
+		i2.rank = in_rank; 
+		resources_to_produce = num;  
+		i2.whatDoYouNeed = PUT_RESOURCE;
 
-	double end_time_of_seq_alg = 0;
-	double start_time_of_seq_alg = 0;
-	double end_time_of_pp_alg = 0;
-	double start_time_of_pp_alg = 0;
+	}
+	void Run()
+	{ 
+		while (resources_to_produce) {
+			CreateResource(); 
+		}
+		while (!resources.empty()) { 
+			SendResourceToManager(); 
+		}
+		i2.whatDoYouNeed = EXITP;
+		cout << "Producer " << i2.rank << ": Finished!" << endl;
+		MPI_Send(&i2, 3, MPI_INT, MANAGER, 0, MPI_COMM_WORLD);
+	}
+};
+
+class Manager { 
+private:
+	int total_resources; 
+
+	int* buffer;
+	int N, p_size, pro, con;
+	MPI_Status status;
+	info i3;
+
+private:
+	void Put(int producer_id, int resource) { 
+		int otvet = 1;
+		for (int i = 0; i < N; i++)
+		{
+			if (buffer[i] == 0) {
+				otvet = 0;
+				buffer[i] = resource;
+				break;
+			}
 
 
-	double partial_summ = 0, temp_sum = 0;
-	int size_el = 1;
-	int size_work_of_proc = 0;
+		}
+		if (otvet == 0)
+		{
+			cout << "Manager: producer " << producer_id << " puts resource " << resource << endl; 
+		}
+		MPI_Send(&otvet, 1, MPI_INT, producer_id, 1, MPI_COMM_WORLD); 
+	}
+	void Get(int consumer_id) { 
+		int resource = 0;
+		for (int i = 0; i < N; i++)
+		{
+			if (buffer[i] == 0)
+				resource = 0;
+			else
+			{
+				resource = buffer[i];
+				buffer[i] = 0;
+				break;
+			}
+		}
 
-	MPI_Status stat;
+		if (resource != 0)
+		{
+			cout << "Manager: consumer " << consumer_id << " gets resource " << resource << endl; 
+		}
+		else
+		{
+			if (pro == 0)
+			{
+				for (int i = 1; i < p_size; i++)
+				{
 
+					if (i % 2)
+						MPI_Send(&STOP, 1, MPI_INT, i, 1, MPI_COMM_WORLD);
+					else
+						MPI_Send(&STOP, 1, MPI_INT, i, 3, MPI_COMM_WORLD);
+					
+				}
+			}
+		}
+		MPI_Send(&resource, 1, MPI_INT, consumer_id, 3, MPI_COMM_WORLD);
+	}
 
-	/* Начало MPI кода */
+public:
+	Manager(int in_total_resources, int proc_size, int p, int c) { 
+		total_resources = in_total_resources;
+		p_size = proc_size;
+		N = total_resources;
+		con = c;
+		pro = p;
+		buffer = new int[total_resources];
+		for (int i = 0; i < total_resources; i++)
+		{
+			buffer[i] = 0;
+		}
+	}
+
+	void Run() {
+		while (true) {
+			MPI_Recv(&i3, 3, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &status);
+			if (i3.whatDoYouNeed == EXITP)
+			{
+				pro--;
+			}
+			if (i3.whatDoYouNeed == EXITC)
+			{
+				con--;
+				if (con == 0)
+				{
+					for (int i = 1; i < p_size; i++)
+					{
+						if (i % 2)
+							MPI_Send(&STOP, 1, MPI_INT, i, 1, MPI_COMM_WORLD);
+						else
+							MPI_Send(&STOP, 1, MPI_INT, i, 3, MPI_COMM_WORLD);
+					}
+					cout << "Manager finsihed his job!" << endl;
+					break;
+				}
+			}
+
+			if (i3.whatDoYouNeed == PUT_RESOURCE)
+				Put(i3.rank, i3.res);
+			if (i3.whatDoYouNeed == GET_RESOURCE)
+				Get(i3.rank);
+		}
+	}
+};
+
+int main(int argc, char** argv) {
 
 	MPI_Init(&argc, &argv);
+	MPI_Status status;
 
+	int rank = -1;
+	int process_num = -1;
+	int pro, con;
+	int size = 0;
 
-	MPI_Comm_size(MPI_COMM_WORLD, &num_of_procs);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank); 
+	MPI_Comm_size(MPI_COMM_WORLD, &process_num); 
 
-	MPI_Comm_rank(MPI_COMM_WORLD, &curr_rank_proc);
+	int a = (process_num - 1);
+	pro = a / 2 + a % 2;
+	con = a / 2 ;
 
-	if (num_of_procs < 1)
-	{
-		cout << "Incorrect number of processes (at least 1 must be)" << endl;
-		return 0;
+	if (rank == 0) { 
+		Manager manager(3, process_num, pro, con);
+		manager.Run(); 
 	}
-
-	if (curr_rank_proc == 0)
-	{
-		cout << "Input size of row: " << endl;
-		cin >> size_row;
-		cout << "Input size of column: " << endl;
-		cin >> size_column;
-
-		size_el = size_row * size_column;
-		matrix_as_vector = Create_vector_and_init(size_row, size_column);
-
-		if (matrix_as_vector == NULL)
-		{
-			cout << "Incorrect input data, try again" << endl;
-			return 0;
+	else { 
+		if (rank % 2) { 
+			cout << "The process with the rank " << rank << " is Producer" << endl;
+			Producer producer(rank, 5);
+			producer.Run();
 		}
-
-		if (size_row * size_column < 1000)
-		{
-			cout << "Current matrix:" << endl;
-			Show_vec(matrix_as_vector, size_row, size_column);
+		else { 
+			cout << "The process with the rank " << rank << " is Consumer" << endl;
+			Consumer consumer(rank, 5); 
+			consumer.Run(); 
 		}
-		cout << endl;
-
-		/* Подсчет суммы всех элементов матрицы (последовательная версия алгоритма): */
-
-		start_time_of_seq_alg = MPI_Wtime();
-
-		for (int i = 0; i < size_row * size_column; i++)
-			sum_el_seq += matrix_as_vector[i];
-
-		end_time_of_seq_alg = MPI_Wtime();
-		time_seq_work_alg = end_time_of_seq_alg - start_time_of_seq_alg;
-
-		cout << "Sum of all elements in matrix is  " << sum_el_seq << " " << endl;
-		cout << "Spent time on the implementation of this algorithm (Sequence version)" << time_seq_work_alg << " ms " << endl;
-		cout << endl;
-		cout << "Num of procs: " << num_of_procs << endl;
-
-
-
-		start_time_of_pp_alg = MPI_Wtime();
-
-		size_work_of_proc = size_el / num_of_procs;
-
-		MPI_Bcast(&size_el, 1, MPI_INT, 0, MPI_COMM_WORLD);
-		for (int i = 1; i < num_of_procs; i++)
-			MPI_Send(matrix_as_vector + size_work_of_proc * (i - 1), size_work_of_proc, MPI_DOUBLE, i, 1, MPI_COMM_WORLD);
-
-
-		cout << "Process with rang " << curr_rank_proc << " start own job" << endl;
-
-		for (int i = size_work_of_proc * (num_of_procs - 1); i < size_el; i++)//подсчитывает последнюю оставшуюся часть, если однопроцесорная система, считает все сама
-			temp_sum += matrix_as_vector[i];
-
-		sum_el_pp = temp_sum;
-
-		MPI_Reduce(&partial_summ, &temp_sum, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-		sum_el_pp += temp_sum;
-		
-
-		end_time_of_pp_alg = MPI_Wtime();
-
-		time_pp_work_alg = end_time_of_pp_alg - start_time_of_pp_alg;
-		cout << "Sum of all elements in matrix is (Parallel version): " << sum_el_pp << endl;
-		cout << "Spent time on the implementation of this algorithm (Parallel version)" << time_pp_work_alg << " ms" << endl;
-
-		if (sum_el_pp == sum_el_seq)
-			cout << "Results of parallel and sequence versions are identical! " << endl;
-		else
-			cout << "Results of parallel and sequence versions are not identical! " << endl;
-
-		if (time_pp_work_alg <= time_seq_work_alg)
-			cout << "Parallel version faster, then sequence" << endl;
-		else
-			cout << "Sequence version faster, then parallel" << endl;
-
-		delete[] matrix_as_vector;
-	}
-	else
-	{
-		double* recv_matrix_as_vector;
-
-		MPI_Bcast(&size_el, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-		size_work_of_proc = size_el / num_of_procs;
-		recv_matrix_as_vector = new double[size_work_of_proc];
-		MPI_Recv(recv_matrix_as_vector, size_work_of_proc, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD, &stat);
-
-		cout << "Process with rang " << curr_rank_proc << " start own job" << endl;
-
-		for (int i = 0; i < size_work_of_proc; i++)
-			partial_summ += recv_matrix_as_vector[i];
-
-		MPI_Reduce(&partial_summ, &temp_sum, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-		delete[] recv_matrix_as_vector;
 	}
 	MPI_Finalize();
-
-	/* Конец MPI кода */
 	return 0;
 }
