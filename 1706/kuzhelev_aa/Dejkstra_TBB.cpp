@@ -1,11 +1,11 @@
-#include <omp.h>
+#include <tbb/tbb.h>
 #include <iostream>
 #include <vector>
 #include <fstream>
 #include <iomanip>
 #include <chrono>
 
-#define MAX_PATH 1000000000000000000
+#define MAX_PATH UINT64_MAX
 
 void Print_Matrix(const std::vector<std::vector<int>> &matrix) {
 
@@ -38,7 +38,7 @@ void Print_Vector(const std::vector<int>& vec) {
 	std::cout << std::endl;
 }
 
-void Read_Matrix(std::vector<std::vector<int>> &matr,size_t size) {
+void Read_Matrix(std::vector<std::vector<int>> &matr, size_t size) {
 	matr.resize(size);
 	for (size_t i = 0; i < matr.size(); ++i) {
 		matr[i].resize(size, 0);
@@ -62,50 +62,52 @@ int main() {
 	std::cout << t << " " << begin_index;
 	std::vector<std::vector<int>> matr;
 	Read_Matrix(matr, t);
-	std::vector<uint64_t> visited(t, 1);
+	std::vector<int> visited(t, 1);
+	std::vector<uint64_t> min_vals(2, UINT64_MAX);
 	std::vector<uint64_t> min_path(t, MAX_PATH);
 	Print_Matrix(matr);
 
 	min_path[begin_index] = 0;
 	uint64_t min_index, min, temp;
-	size_t i;
+	tbb::mutex mut;
+	int size = tbb::task_scheduler_init::default_num_threads();
+	std::cerr << "Num of threads:" << size << std::endl;
 	auto begin = std::chrono::steady_clock::now();
 	do {
-		min_index = MAX_PATH;
-		min = MAX_PATH;
-
-		#pragma omp parallel
-		{
-			int local_min_index = MAX_PATH;
-			int local_min = MAX_PATH;
-
-			#pragma omp for
-			for (i = 0; i < visited.size(); ++i) {
-				if (visited[i] == 1 && (min_path[i] < local_min)) {
-					local_min = min_path[i];
-					local_min_index = i;
-				}
-			}
-			#pragma omp critical
-			{
-				if (local_min < min) {
-					min = local_min;
-					min_index = local_min_index;
-				}
-			}
-		}
-		if (min_index != MAX_PATH) {
-			#pragma omp parallel for private(temp)
-			for (i = 0; i < visited.size(); ++i) {
-				if (matr[min_index][i] > 0) {
-					temp = min + matr[min_index][i];
-					if (temp < min_path[i]) {
-						min_path[i] = temp;
+		min_vals = tbb::parallel_reduce(
+			tbb::blocked_range<uint64_t>(0, t),
+			std::vector<uint64_t>(2) = {UINT64_MAX, UINT64_MAX},
+			[&](const tbb::blocked_range<uint64_t>& v, std::vector<uint64_t> local_min_vals) {
+				for (int i = 0; i < v.end(); ++i) {
+					if (visited[i] == 1 && min_path[i] < local_min_vals[0]) {
+						local_min_vals[0] = min_path[i];
+						local_min_vals[1] = i;
 					}
 				}
-
-				visited[min_index] = 0;
-			}
+				return local_min_vals;
+			},
+			[&](std::vector<uint64_t> x, std::vector<uint64_t> y) {
+				if (x[0] < y[0]) {
+					return x;
+				}
+				return y;
+			});
+		min = min_vals[0];
+		min_index = min_vals[1];
+		if (min_index != MAX_PATH) {
+			tbb::parallel_for(
+				tbb::blocked_range<uint64_t>(0,t),
+				[&](const tbb::blocked_range<uint64_t>& v) {
+					for (int i = 0; i < v.end(); ++i) {
+						if (matr[min_index][i] > 0) {
+							mut.lock();
+							temp = min + matr[min_index][i];
+							min_path[i] = min_path[i] > temp ? temp : min_path[i];
+							mut.unlock();
+						}
+						visited[min_index] = 0;
+					}
+			});
 		}
 
 	} while (min_index < MAX_PATH);
@@ -120,7 +122,7 @@ int main() {
 		std::cout << row << " ";
 	}
 	std::cerr << std::endl;
-	std::cerr << "Time spent to OpenMP algorithm:" << elapsed_ms.count() << " milliseconds" << std::endl;
+	std::cerr << "Time spent to TBB algorithm:" << elapsed_ms.count() << " milliseconds" << std::endl;
 	return 0;
-	
+
 }
