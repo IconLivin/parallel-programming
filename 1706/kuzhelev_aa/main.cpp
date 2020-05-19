@@ -7,7 +7,6 @@
 #include <ctime>
 #include <string>
 #include <stdexcept>
-//#include <python.h>
 
 #define MAX_PATH 1000000000000000000
 
@@ -85,26 +84,6 @@ void Read_Matrix(std::vector<int> &matr, size_t size, const std::string &matr_in
 	}
 	in.close();
 }
-
-
-
-//void Generate_Connected_Graph(std::vector<int> &matr,const int& size) {
-//	std::ofstream out;
-//	out.open("../../graph.txt");
-//	out << size;
-//	out.close();
-//	Py_SetProgramName(L"../../ss.py");
-//	Py_Initialize();
-//	PyRun_SimpleFile(fopen("../../ss.py", "r"), "ss.py");
-//	matr.resize(size*size);
-//	std::ifstream in;
-//	in.open("../../graph.txt");
-//	int x, y, weight;
-//	while (in >> x >> y >> weight) {
-//		matr[x*size + y] = matr[y*size + x] = weight;
-//	}
-//	in.close();
-//}
 
 void help(const char *name, const char *message) {
 	std::cout << "\n\n" << std::string(message) + 
@@ -200,9 +179,6 @@ int main(int argc, char *argv[]) {
 	case 2:
 		Generate_matrix(matr, t);
 		break;
-	/*case 3:
-		Generate_Connected_Graph(matr, t);
-		break;*/
 	default:
 		Input_Matrix(matr, t);
 	}
@@ -230,85 +206,6 @@ int main(int argc, char *argv[]) {
 	}
 	std::cout << std::endl;
 	std::ofstream out1(info);
-	out1 << matr.size() << " " << begin_index;
-	std::cerr << "Time spent to sequence algorithm:" << elapsed_ms.count() << " milliseconds" << std::endl;
-	return 0;
-}	Generate_matrix(matr, t);
-		break;
-	default:
-		Input_Matrix(matr, t);
-	}
-
-	std::vector<uint64_t> visited(t, 1);
-	std::vector<uint64_t> min_path(t, MAX_PATH);
-	Print_Matrix(matr);
-	int begin_index;
-	std::cerr << "Insert peak number:";
-	std::cin >> begin_index;
-	while (begin_index >= matr.size()) {
-		std::cerr << "Index can't be more than:" << matr.size() << "\nInsert correct peak number [0, " << matr.size() - 1 << "]:";
-		std::cin >> begin_index;
-	}
-	min_path[begin_index] = 0;
-	uint64_t min_index, min;
-	auto begin = std::chrono::steady_clock::now();
-	do {
-		min_index = MAX_PATH;
-		min = MAX_PATH;
-		for (size_t i = 0; i < visited.size(); ++i) {
-			if (visited[i] == 1 && (min_path[i] < min)) {
-				min = min_path[i];
-				min_index = i;
-			}
-		}
-		if (min_index != MAX_PATH) {
-			for (size_t i = 0; i < visited.size(); ++i) {
-				if (matr[min_index][i] > 0) {
-					int temp = min + matr[min_index][i];
-					if (temp < min_path[i]) {
-						min_path[i] = temp;
-					}
-				}
-			}
-			visited[min_index] = 0;
-		}
-	} while (min_index < MAX_PATH);
-
-	auto end = std::chrono::steady_clock::now();
-
-	auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin);
-
-	for (size_t i = 0; i < t; ++i) {
-		int end = i != begin_index ? i : i < t - 1 ? i + 1 : -1;
-		if (end < 0)break;
-		std::vector<int> rebuild(t + 1);
-		rebuild[0] = end;
-		int k = 1;
-		int weight = min_path[end];
-		std::vector<bool> visited(t, false);
-		while (end != begin_index) {
-			for (size_t j = 0; j < t; ++j) {
-				int temp = weight - matr[end][j];
-				if (!visited[j] && temp == min_path[j]) {
-					visited[j] = true;
-					weight = temp;
-					end = j;
-					rebuild[k] = j;
-					++k;
-					j = 0;
-				}
-			}
-		}
-		rebuild[t] = k;
-		Print_Vector(rebuild);
-
-	}
-	std::cout << std::endl;
-	for (const auto row : min_path) {
-		std::cout << row << " ";
-	}
-	std::cout << std::endl;
-	std::ofstream out1("../../info.txt");
 	out1 << matr.size() << " " << begin_index;
 	std::cerr << "Time spent to sequence algorithm:" << elapsed_ms.count() << " milliseconds" << std::endl;
 	return 0;
